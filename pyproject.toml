@@ -1,0 +1,17 @@
+[project]
+name = "mono-cis"
+version = "0.1.0"
+description = "CIS, as a monorepo."
+readme = "README.md"
+authors = [
+    { name = "Bheesham Persaud", email = "bhee@mozilla.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[project.scripts]
+mono-cis = "mono_cis:main"
+
+[build-system]
+requires = ["uv_build>=0.12.12,<0.13.0"]
+build-backend = "uv_build"

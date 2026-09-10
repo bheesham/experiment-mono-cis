@@ -1,0 +1,9 @@
+[tools]
+ruff = "latest"
+uv = "0.12.12"
+
+[settings]
+python.uv_venv_auto = "create|source"
+
+[tasks.test]
+run = 'uv run python -m unittest discover -s tests -t .'
