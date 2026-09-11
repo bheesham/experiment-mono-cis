@@ -1,0 +1,8 @@
+# Only pyproject.toml, uv.lock, README.md, src/ and tests/ are copied into the image; keep the
+# context small and never ship a host virtualenv or the reference clones.
+.git
+.venv
+local
+dist
+**/__pycache__
+**/*.py[co]
