@@ -10,3 +10,10 @@ run = 'uv run python -m unittest discover -s tests -t .'
 
 [tasks.test-docker]
 run = 'docker build --target test .'
+
+[tasks.coverage]
+run = '''
+#!/usr/bin/env bash
+uv run coverage run -m unittest discover -s tests -t .
+uv run coverage report -m
+'''

@@ -13,6 +13,11 @@ dependencies = [
     "requests>=2.34.2",
 ]
 
+[dependency-groups]
+dev = [
+    "coverage>=7.16.0",
+]
+
 [project.scripts]
 mono-cis = "mono_cis:main"
 # One entrypoint per project sharing this codebase.
@@ -26,3 +31,6 @@ build-backend = "uv_build"
 # Tests are stdlib unittest.TestCase, runnable with either
 # `python -m unittest discover -s tests -t .` or `pytest`.
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src"]
