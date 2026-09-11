@@ -1,0 +1,215 @@
+import boto3
+import concurrent.futures
+import json
+import logging
+import lzma
+import time
+
+from mono_cis.publishers.common import InactiveProfileException, Profile, ProfileNotFoundException
+from inspect import cleandoc
+from os import environ
+from os.path import exists
+
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+
+
+def handle(event: dict, context=None) -> int:
+    main()
+
+    return None
+
+
+def get_ldap_dump(bucket: str = None, key: str = None, filename: str = None) -> dict:
+    """
+    :param bucket: bucket name in S3
+    :param key:  LDAP dump file name in S3
+    :param filename: file name when running locally
+    :return: contents of compressed (or uncompressed) LDAP dump, as a dictionary
+    """
+    if bucket and key:
+        s3 = boto3.client("s3")
+
+        logger.info("Reloading LDAP data from S3")
+
+        s3object = s3.get_object(Bucket=bucket,
+                                 Key=key)["Body"]
+
+        if environ["LDAP_CACHE_S3_KEY"].endswith("xz"):
+            with lzma.open(s3object) as __f:
+                return json.load(__f)
+        else:
+            return json.loads(s3object.read())
+    elif filename:
+        if not exists(filename):
+            raise FileNotFoundError(f"Cannot open {filename}")
+
+        with open(filename, "r") as __f:
+            return json.load(__f)
+
+
+def synchronize(email, ldap_profile):
+    # The mapping of LDAP field names to the ldap_profile key names can be found
+    # in git-internal.mozilla.org/sysadmins/puppet/modules/ldap_crons/files/ldap_to_cis/ldap_to_cis.py
+    # in the structure_output function
+    
+    # convenience variables to make referring to user profile data cleaner
+    dn = ldap_profile["distinguished_name"]
+    pgp_public_keys = {f"LDAP-{i}": f"0x{key}".replace(" ", "").replace("0x0x", "0x")
+                       for i, key in enumerate(ldap_profile.get("pgp_public_keys", []), start=1)}
+    phone_numbers = {f"LDAP-{i}": key.strip()
+                     for i, key in enumerate(ldap_profile.get("phone_numbers", []), start=1)}
+    ssh_public_keys = {f"LDAP-{i}": key.strip()
+                       for i, key in enumerate(ldap_profile.get("ssh_public_keys", []), start=1)}
+    user_id = ldap_profile["user_id"]
+
+    # convenience variables to make the code below cleaner
+    display_level = "staff" if "o=com" in dn or "o=org" in dn else "private"
+
+    # Update a profile
+    try:
+        # Note that this is a change from the previous
+        p = Profile(email=email)
+        logger.debug(f"Updating user: {user_id} ({email})")
+
+        p.update({
+            "pgp_public_keys": pgp_public_keys,
+            "ssh_public_keys": ssh_public_keys,
+        })
+
+        p["access_information"]["ldap"] = ldap_profile.get("groups")
+
+        p["identities"].update({
+            "mozilla_ldap_id": ldap_profile.get("distinguished_name"),
+            "mozilla_ldap_primary_email": email,
+            "mozilla_posix_id": ldap_profile.get("posix", {}).get("uid"),
+        })
+
+    except InactiveProfileException:
+        # scream and run away, since LDAP and HRIS are desynced - this should only happen when `active` is
+        # set to `false` in CIS -- something that only can be done by the HRIS publisher -- but nevertheless
+        # their account still appears in the LDAP active account dump
+        return False
+
+    # creating a profile
+    except ProfileNotFoundException:
+        # Hello fellow adventurer, welcome to the bowels of the third (and hopefully final) LDAP publisher.
+        # Since you're here, here are some notes from the previous LDAP publisher:
+
+        # Dropped attributes:
+        # mobile, im, description, jpegPhoto - these should all now be set in DinoPark
+        # usernames["LDAP"] - can find no evidence of it ever working
+        # usernames["LDAP-alias-*"] - in theory, this could be set from the previous publisher, but the only
+        #                             time it would ever work is on profile creation, and mail aliases are generally
+        #                             setup -long- past that point. In theory, there should be a mail_aliases field
+        #                             that could be updated
+
+        # Changed attributes:
+        # fun_title - now uses the Workday Title(e.g. Senior Engineer), if it exists
+        # last_modified - now uses the timestamp from this run instead of the last_modified value in LDAP,
+        #                             with the caveat that `created` is still the LDAP created timestamp
+
+        # Added attributes:
+        # usernames["LDAP-uuid"] - at the very least, start including the unique LDAP entryUUID, in case
+        #                          some future brainiac makes it all work
+
+        # Note that as it currently stands (2020-10-10), the LDAP publisher will only ever UPDATE a profile,
+        # it will never CREATE one. The code in cis_publishers/common/unused_create_profile.py (left behind in
+        # the mozilla-iam/cis-publishers repository, not ported here) remains in case the decision ever
+        # changes, as it is known to work properly, and it fully documents what would be done should the
+        # LDAP publisher ever create profiles.
+        return False
+
+    # Currently, only publish a changed profile
+    p.publish(display_level=display_level)
+
+    return True
+
+
+def main():
+    start_time = time.time()
+
+    # Open up the LDAP dump (either as json or compressed), in either S3 or locally
+    try:
+        if environ.get("LDAP_CACHE_S3_BUCKET"):
+            ldap_users = get_ldap_dump(bucket=environ["LDAP_CACHE_S3_BUCKET"], key=environ["LDAP_CACHE_S3_KEY"])
+        elif environ.get("LDAP_CACHE_FILENAME"):
+            ldap_users = get_ldap_dump(filename=environ["LDAP_CACHE_FILENAME"])
+        else:
+            raise FileNotFoundError("No LDAP dump specified")
+    except:
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": "Invalid LDAP export",
+            })
+        }
+
+    # Create a thread pool of 32 workers to process the LDAP user_ids
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=32)
+    futures = []
+
+    for email, ldap_profile in ldap_users.items():
+        futures.append((email, executor.submit(synchronize, email, ldap_profile)))
+
+    executor.shutdown(wait=True)
+
+    # Now we log whether everything went okay
+    desynced_accounts = []
+    failed_accounts = []
+    successful_accounts = []
+
+    for future in futures:
+        result = future[1].result()
+
+        if result is True:
+            successful_accounts.append(future[0])
+        elif result is False:
+            desynced_accounts.append(future[0])
+        else:
+            failed_accounts.append(future[0])
+
+    desynced_accounts_list_msg = f": {', '.join(desynced_accounts)}" if desynced_accounts else ""
+    failed_accounts_list_msg = f": {', '.join(failed_accounts)}" if failed_accounts else ""
+
+    result_message = f"""
+        LDAP Publisher results:
+
+          {len(successful_accounts)} accounts synchronized.
+          {len(desynced_accounts)} accounts have CIS/HRIS/LDAP mismatches{desynced_accounts_list_msg}
+          {len(failed_accounts)} accounts failed to synchronize{failed_accounts_list_msg}
+
+        LDAP Publisher completed in {(time.time() - start_time):.2f}s.
+        """
+
+    logger.info(cleandoc(result_message))
+
+    # TODO: Once we're done logging, assuming that there were no failed accounts, we can finally store the
+    # status of this last run in S3 (or locally)
+
+
+def cli() -> int:
+    """
+    Entrypoint for the `publisher-ldap` console script.
+
+    Applies this publisher's defaults, which were constants in the old serverless.yml (identical in every
+    stage), then maps main()'s result to an exit code. main() itself is unchanged and still reads the raw
+    environment variables, so `python -m mono_cis.publishers.ldap` and handle() behave as before.
+
+    :return: 0 when main() completed, 1 when it returned its error response (unreadable LDAP dump)
+    """
+    environ.setdefault("PUBLISHER_NAME", "ldap")
+
+    # main() prefers S3 whenever a bucket is set, so only default the S3 location when not running
+    # against a local LDAP cache.
+    if not environ.get("LDAP_CACHE_FILENAME"):
+        environ.setdefault("LDAP_CACHE_S3_BUCKET", "cache.ldap.sso.mozilla.com")
+        environ.setdefault("LDAP_CACHE_S3_KEY", "ldap_users.json.xz")
+
+    return 1 if main() else 0
+
+
+if __name__ == "__main__":
+    main()

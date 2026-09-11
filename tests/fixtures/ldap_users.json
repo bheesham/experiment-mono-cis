@@ -1,0 +1,47 @@
+{
+  "astaff@mozilla.com": {
+    "created_at": "20190227112333Z",
+    "distinguished_name": "mail=astaff@mozilla.com,o=com,dc=mozilla",
+    "entry_uuid": "6f1a2b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+    "first_name": "Ada",
+    "groups": ["vpn_default", "all_staff", "team_iam"],
+    "last_name": "Staff",
+    "pgp_public_keys": ["0x0123456789ABCDEF", "FEDC BA98 7654 3210"],
+    "phone_numbers": [" +1 555 0100 "],
+    "posix": {"uid": "astaff", "uid_number": 10001},
+    "ssh_public_keys": [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyOneFakeKeyOneFakeKeyOneFakeKeyOne astaff@laptop ",
+      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQFakeKeyTwo astaff@desktop"
+    ],
+    "title": "Senior Engineer",
+    "user_id": "ad|Mozilla-LDAP|astaff"
+  },
+  "inactive@mozilla.com": {
+    "created_at": "20180101000000Z",
+    "distinguished_name": "mail=inactive@mozilla.com,o=com,dc=mozilla",
+    "entry_uuid": "0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9",
+    "first_name": "Ina",
+    "groups": ["all_staff"],
+    "last_name": "Active",
+    "pgp_public_keys": [],
+    "phone_numbers": [],
+    "posix": {"uid": "inactive", "uid_number": 10002},
+    "ssh_public_keys": [],
+    "title": "",
+    "user_id": "ad|Mozilla-LDAP|inactive"
+  },
+  "ghost@mozilla.com": {
+    "created_at": "20200101000000Z",
+    "distinguished_name": "mail=ghost@mozilla.com,o=net,dc=mozilla",
+    "entry_uuid": "9e8d7c6b-5a49-4382-9716-05f4e3d2c1b0",
+    "first_name": "Gus",
+    "groups": ["contributors"],
+    "last_name": "Ghost",
+    "pgp_public_keys": [],
+    "phone_numbers": [],
+    "posix": {"uid": "ghost", "uid_number": 20001},
+    "ssh_public_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyGhost ghost@home"],
+    "title": "",
+    "user_id": "ad|Mozilla-LDAP|ghost"
+  }
+}

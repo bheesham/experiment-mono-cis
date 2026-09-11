@@ -7,3 +7,6 @@ python.uv_venv_auto = "create|source"
 
 [tasks.test]
 run = 'uv run python -m unittest discover -s tests -t .'
+
+[tasks.test-docker]
+run = 'docker build --target test .'
